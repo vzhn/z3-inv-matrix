@@ -61,18 +61,38 @@ class Main(private val cols: Int, private val mod: Int) {
             solver.add(*formulas.map(instance::conv).toTypedArray())
             val success = solver.check()
             if (success == Status.SATISFIABLE) {
-                instance.printModel(solver.model)
+                val result = instance.extractModel(solver.model)
+                println("== input ==")
+                instance.print(matrix)
+                println()
+                println("== result ==")
+                instance.print(result)
+                println()
+                println("== input * result ==")
+                instance.print(mul(cols, mod, matrix, result))
+                println()
             } else {
                 System.err.println("UNSAT")
             }
         }
     }
 
-    private fun printModel(model: Model) {
+    private fun extractModel(model: Model): List<Int> {
+        val rs = mutableListOf<Int>()
         for (rn in 0 until cols) {
             for (cn in 0 until cols) {
                 val interp = model.getConstInterp(context.mkIntConst(Formula.Cell(Matrix.B, cn, rn).name)) as IntNum
                 val value = interp.int
+                rs.add(value)
+            }
+        }
+        return rs
+    }
+
+    private fun print(matrix: List<Int>) {
+        for (rn in 0 until cols) {
+            for (cn in 0 until cols) {
+                val value = matrix[cols * rn + cn]
                 print("$value ")
             }
             println()
@@ -160,4 +180,18 @@ fun readMatrix(fileName: String, cols: Int): List<Int> {
         data.add(sc.nextInt())
     }
     return data
+}
+
+fun mul(cols: Int, mod: Int, a: List<Int>, b: List<Int>): List<Int> {
+    val rs = mutableListOf<Int>()
+    for (row in 0 until cols) {
+        for (col in 0 until cols) {
+            var sum = 0
+            for (k in 0 until cols) {
+                sum += a[row * cols + k] * b[k * cols + col]
+            }
+            rs.add(sum % mod)
+        }
+    }
+    return rs
 }
