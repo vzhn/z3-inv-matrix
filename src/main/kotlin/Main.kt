@@ -57,7 +57,8 @@ class Main(private val cols: Int, private val mod: Int) {
 
             val instance = Main(cols, mod)
             val formulas = instance.multiplicationFormulas() + instance.matrixFormulas(matrix) + instance.cellConstraints()
-            val solver = instance.context.mkSolver("NIA")
+            val solver = instance.context.mkSolver("LIA")
+//            val solver = instance.context.mkSolver(instance.context.mkTactic("qfnra-nlsat"))
             solver.add(*formulas.map(instance::conv).toTypedArray())
             val success = solver.check()
             if (success == Status.SATISFIABLE) {
@@ -104,18 +105,17 @@ class Main(private val cols: Int, private val mod: Int) {
 
     // A * B = E
     private fun multiplicationFormulas(): List<Formula> {
-        val n = 3
         val formulas = mutableListOf<Formula>()
 
-        for (r in 0 until n) {
-            for (c in 0 until n) {
+        for (r in 0 until cols) {
+            for (c in 0 until cols) {
                 val expected = if (r == c) {
                     Formula.One
                 } else {
                     Formula.Zero
                 }
 
-                val sum = Formula.Sum((0 until n).map { k ->
+                val sum = Formula.Sum((0 until cols).map { k ->
                     val a = Formula.Cell(Matrix.A, k, r)
                     val b = Formula.Cell(Matrix.B, c, k)
                     Formula.Prod(a, b)
