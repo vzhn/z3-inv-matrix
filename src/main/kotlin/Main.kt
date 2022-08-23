@@ -1,10 +1,6 @@
 package me.vzhilin.matrix
 
-import com.microsoft.z3.ArithExpr
-import com.microsoft.z3.BoolExpr
-import com.microsoft.z3.Context
-import com.microsoft.z3.IntSort
-import com.microsoft.z3.Status
+import com.microsoft.z3.*
 import kotlinx.cli.ArgParser
 import kotlinx.cli.ArgType
 import kotlinx.cli.required
@@ -13,7 +9,7 @@ import java.util.Scanner
 
 enum class Matrix { A, B }
 sealed class Formula {
-    data class Value(val m: Matrix, val col: Int, val row: Int): Formula() {
+    data class Cell(val m: Matrix, val col: Int, val row: Int): Formula() {
         override fun toString() = "${m}[${col}][${row}]"
         val name get() = toString()
     }
@@ -23,8 +19,22 @@ sealed class Formula {
     data class Prod(val left: Formula, val right: Formula): Formula() {
         override fun toString() = "$left * $right"
     }
+    data class Mod(val lhs: Formula, val rhs: Formula): Formula()
     data class Eq(val left: Formula, val right: Formula): Formula() {
         override fun toString() = "$left = $right"
+    }
+    data class Ge(val left: Formula, val right: Formula): Formula() {
+        override fun toString(): String {
+            return "$left >= $right"
+        }
+    }
+    data class Le(val left: Formula, val right: Formula): Formula() {
+        override fun toString(): String {
+            return "$left <= $right"
+        }
+    }
+    data class Const(val n: Int): Formula() {
+        override fun toString() = "$n"
     }
     object Zero: Formula() {
         override fun toString() = "0"
@@ -34,7 +44,7 @@ sealed class Formula {
     }
 }
 
-class Main(cols: Int, mod: Int) {
+class Main(private val cols: Int, private val mod: Int) {
     companion object {
         @JvmStatic fun main(argv: Array<String>) {
             val parser = ArgParser("smt-inv-matrix")
@@ -46,17 +56,31 @@ class Main(cols: Int, mod: Int) {
             val matrix = readMatrix(file, cols)
 
             val instance = Main(cols, mod)
-            val formulas = instance.multiplicationFormulas() + instance.matrixFormulas(matrix)
-            val solver = instance.context.mkSolver()
+            val formulas = instance.multiplicationFormulas() + instance.matrixFormulas(matrix) + instance.cellConstraints()
+            val solver = instance.context.mkSolver("LIA")
             solver.add(*formulas.map(instance::conv).toTypedArray())
             val success = solver.check()
             if (success == Status.SATISFIABLE) {
-                println(solver.model)
+                instance.printModel(solver.model)
+            } else {
+                System.err.println("UNSAT")
             }
         }
     }
 
+    private fun printModel(model: Model) {
+        for (rn in 0 until cols) {
+            for (cn in 0 until cols) {
+                val interp = model.getConstInterp(context.mkIntConst(Formula.Cell(Matrix.B, cn, rn).name)) as IntNum
+                val value = interp.int
+                print("$value ")
+            }
+            println()
+        }
+    }
+
     private val context = Context()
+    private val modConst = Formula.Const(mod)
 
     // A * B = E
     private fun multiplicationFormulas(): List<Formula> {
@@ -72,45 +96,60 @@ class Main(cols: Int, mod: Int) {
                 }
 
                 val sum = Formula.Sum((0 until n).map { k ->
-                    val a = Formula.Value(Matrix.A, k, r)
-                    val b = Formula.Value(Matrix.B, c, k)
+                    val a = Formula.Cell(Matrix.A, k, r)
+                    val b = Formula.Cell(Matrix.B, c, k)
                     Formula.Prod(a, b)
                 })
 
-                formulas.add(Formula.Eq(sum, expected))
+                formulas.add(Formula.Eq(Formula.Mod(sum, modConst), expected))
             }
         }
         return formulas
     }
 
-    fun convInt(f: Formula): ArithExpr<IntSort> {
+    private fun cellConstraints(): List<Formula> {
+        return (0 until cols * cols).map { it ->
+            val col = it % cols
+            val row = it / cols
+            col to row
+        }.flatMap { (col, row) ->
+            listOf(
+                Formula.Ge(Formula.Cell(Matrix.B, col, row), Formula.Zero),
+                Formula.Le(Formula.Cell(Matrix.B, col, row), Formula.Const(mod - 1))
+            )
+        }
+    }
+
+    private fun convInt(f: Formula): ArithExpr<IntSort> {
         return when (f) {
-            is Formula.Eq -> throw IllegalArgumentException()
-            is Formula.Prod -> {
-                context.mkMul(convInt(f.left), convInt(f.right))
-            }
-            is Formula.Sum -> {
-                context.mkAdd(*f.vs.map(::convInt).toTypedArray())
-            }
-            is Formula.Value -> {
-                context.mkIntConst(f.name)
-            }
+            is Formula.Prod -> context.mkMul(convInt(f.left), convInt(f.right))
+            is Formula.Sum -> context.mkAdd(*f.vs.map(::convInt).toTypedArray())
+            is Formula.Cell -> context.mkIntConst(f.name)
+            is Formula.Const -> context.mkInt(f.n)
+            is Formula.Mod -> context.mkMod(convInt(f.lhs), convInt(f.rhs))
             Formula.Zero -> context.mkInt(0)
             Formula.One -> context.mkInt(1)
+            else -> throw IllegalArgumentException()
         }
     }
 
     fun conv(f: Formula): BoolExpr {
         return when (f) {
-            is Formula.Eq -> {
-                context.mkEq(convInt(f.left), convInt(f.right))
-            }
+            is Formula.Eq -> context.mkEq(convInt(f.left), convInt(f.right))
+            is Formula.Ge -> context.mkGe(convInt(f.left), convInt(f.right))
+            is Formula.Le -> context.mkLe(convInt(f.left), convInt(f.right))
             else -> throw IllegalArgumentException()
         }
     }
 
     fun matrixFormulas(m: List<Int>): List<Formula> {
-        TODO()
+        val rs = mutableListOf<Formula>()
+        for (i in 0 until cols * cols) {
+            val col = i % cols
+            val row = i / cols
+            rs.add(Formula.Eq(Formula.Cell(Matrix.A, col, row), Formula.Const(m[i])))
+        }
+        return rs
     }
 }
 
