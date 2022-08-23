@@ -57,7 +57,7 @@ class Main(private val cols: Int, private val mod: Int) {
 
             val instance = Main(cols, mod)
             val formulas = instance.multiplicationFormulas() + instance.matrixFormulas(matrix) + instance.cellConstraints()
-            val solver = instance.context.mkSolver("LIA")
+            val solver = instance.context.mkSolver("NIA")
             solver.add(*formulas.map(instance::conv).toTypedArray())
             val success = solver.check()
             if (success == Status.SATISFIABLE) {
