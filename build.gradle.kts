@@ -27,7 +27,17 @@ tasks.withType<KotlinCompile> {
 }
 
 application {
-    mainClass.set("me.vzhilin.gr.Main")
+    mainClass.set("me.vzhilin.matrix.Main")
+}
+
+distributions {
+    main {
+        contents {
+            into("samples") {
+                from("samples")
+            }
+        }
+    }
 }
 
 kotlin {
